@@ -87,34 +87,47 @@ class StyleReader {
       }
     }
     return Style(
-        theme: ThemeReader(logger: logger).read(style),
-        providers: TileProviders(providerByName),
-        sprites: sprites,
-        name: name,
-        center: centerPoint,
-        zoom: zoom);
+      theme: ThemeReader(logger: logger).read(style),
+      providers: TileProviders(providerByName),
+      sprites: sprites,
+      name: name,
+      center: centerPoint,
+      zoom: zoom,
+    );
   }
 
   Future<Map<String, VectorTileProvider>> _readProviderByName(
       Map sources) async {
     final providers = <String, VectorTileProvider>{};
     final sourceEntries = sources.entries
-        .where((s) => s.value['type'] == 'vector' && s.value['url'] is String)
+        .where((s) =>
+            s.value['type'] == 'vector' &&
+            (s.value['tiles'] is List || s.value['url'] is String))
         .toList();
     for (final entry in sourceEntries) {
-      var entryUrl = entry.value['url'] as String;
-      final sourceUrl = StyleUriMapper(key: apiKey).mapSource(uri, entryUrl);
-      final source = await compute(jsonDecode, await _httpGet(sourceUrl));
-      if (source is! Map) {
-        throw _invalidStyle(sourceUrl);
+      // TODO: refactor this with dart 3 patterns
+      dynamic source;
+      if (entry.value['url'] is String) {
+        var entryUrl = entry.value['url'] as String;
+        final sourceUrl = StyleUriMapper(key: apiKey).mapSource(uri, entryUrl);
+        source = await compute(jsonDecode, await _httpGet(sourceUrl));
+        if (source is! Map) {
+          throw _invalidStyle(sourceUrl);
+        }
       }
+      // tiles correspond to this spec:
+      // https://maplibre.org/maplibre-style-spec/sources/#sources
+      if (entry.value['tiles'] is List) source = entry.value;
+
       final entryTiles = source['tiles'];
       final maxzoom = source['maxzoom'] as int? ?? 14;
       if (entryTiles is List && entryTiles.isNotEmpty) {
         final tileUri = entryTiles[0] as String;
         final tileUrl = StyleUriMapper(key: apiKey).mapTiles(tileUri);
         providers[entry.key] = NetworkVectorTileProvider(
-            urlTemplate: tileUrl, maximumZoom: maxzoom);
+          urlTemplate: tileUrl,
+          maximumZoom: maxzoom,
+        );
       }
     }
     if (providers.isEmpty) {
